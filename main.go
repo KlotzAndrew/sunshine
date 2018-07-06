@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
@@ -9,7 +10,18 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
+var (
+	httpRequestsResponseTime prometheus.Summary
+)
+
 func main() {
+	httpRequestsResponseTime = prometheus.NewSummary(prometheus.SummaryOpts{
+		Namespace: "db",
+		Name:      "response_time_seconds",
+		Help:      "Request response times",
+	})
+	prometheus.MustRegister(httpRequestsResponseTime)
+
 	// Echo instance
 	e := echo.New()
 
@@ -20,6 +32,7 @@ func main() {
 	// Routes
 	e.GET("/", hello)
 	e.GET("/basic", echo.WrapHandler(prometheus.InstrumentHandler("basic", instrumentedHandler())))
+	e.GET("/dbwrite", echo.WrapHandler(prometheus.InstrumentHandler("dbWrite", dbHandler())))
 	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
 
 	// Start server
@@ -36,4 +49,20 @@ func instrumentedHandler() http.Handler {
 		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("Basic instrumentation!"))
 	})
+}
+
+func dbHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		res := writeToDb()
+
+		w.Write([]byte(res))
+	})
+}
+
+func writeToDb() string {
+	start := time.Now()
+	defer httpRequestsResponseTime.Observe(float64(time.Since(start).Seconds()))
+
+	return "some db request!"
 }
