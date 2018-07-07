@@ -11,16 +11,13 @@ import (
 )
 
 var (
-	httpRequestsResponseTime prometheus.Summary
+	FastQuery prometheus.Summary
+	SlowQuery prometheus.Summary
 )
 
 func main() {
-	httpRequestsResponseTime = prometheus.NewSummary(prometheus.SummaryOpts{
-		Namespace: "db",
-		Name:      "response_time_seconds",
-		Help:      "Request response times",
-	})
-	prometheus.MustRegister(httpRequestsResponseTime)
+	dbInstrument(&FastQuery, "fast_query")
+	dbInstrument(&SlowQuery, "slow_query")
 
 	// Echo instance
 	e := echo.New()
@@ -33,10 +30,21 @@ func main() {
 	e.GET("/", hello)
 	e.GET("/basic", echo.WrapHandler(prometheus.InstrumentHandler("basic", instrumentedHandler())))
 	e.GET("/dbwrite", echo.WrapHandler(prometheus.InstrumentHandler("dbWrite", dbHandler())))
+	e.GET("/dbwrite_slow", echo.WrapHandler(prometheus.InstrumentHandler("dbWrite", dbSlowHandler())))
 	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
 
 	// Start server
 	e.Logger.Fatal(e.Start(":1323"))
+}
+
+func dbInstrument(query *prometheus.Summary, name string) {
+	*query = prometheus.NewSummary(prometheus.SummaryOpts{
+		Namespace:   "db",
+		Name:        "query_time_seconds",
+		Help:        "Query response times",
+		ConstLabels: prometheus.Labels{"query": name},
+	})
+	prometheus.MustRegister(*query)
 }
 
 // Handler
@@ -60,9 +68,27 @@ func dbHandler() http.Handler {
 	})
 }
 
+func dbSlowHandler() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		res := writeToDbSlow()
+
+		w.Write([]byte(res))
+	})
+}
+
 func writeToDb() string {
 	start := time.Now()
-	defer httpRequestsResponseTime.Observe(float64(time.Since(start).Seconds()))
+	time.Sleep(10 * time.Millisecond)
+	defer FastQuery.Observe(float64(time.Since(start).Seconds()))
 
 	return "some db request!"
+}
+
+func writeToDbSlow() string {
+	start := time.Now()
+	time.Sleep(1000 * time.Millisecond)
+	defer SlowQuery.Observe(float64(time.Since(start).Seconds()))
+
+	return "some slow db request!"
 }
