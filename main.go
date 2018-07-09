@@ -2,6 +2,7 @@ package main
 
 import (
 	"net/http"
+	"os"
 	"time"
 
 	"github.com/labstack/echo"
@@ -30,19 +31,28 @@ func main() {
 	e.GET("/", hello)
 	e.GET("/basic", echo.WrapHandler(prometheus.InstrumentHandler("basic", instrumentedHandler())))
 	e.GET("/dbwrite", echo.WrapHandler(prometheus.InstrumentHandler("dbWrite", dbHandler())))
-	e.GET("/dbwrite_slow", echo.WrapHandler(prometheus.InstrumentHandler("dbWrite", dbSlowHandler())))
+	e.GET("/dbwrite_slow", echo.WrapHandler(prometheus.InstrumentHandler("dbWriteSlow", dbSlowHandler())))
 	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
 
 	// Start server
-	e.Logger.Fatal(e.Start(":1323"))
+	port := os.Getenv("PORT")
+	e.Logger.Fatal(e.Start(port))
 }
 
 func dbInstrument(query *prometheus.Summary, name string) {
+	hostname, err := os.Hostname()
+	if err != nil {
+		panic(1)
+	}
 	*query = prometheus.NewSummary(prometheus.SummaryOpts{
-		Namespace:   "db",
-		Name:        "query_time_seconds",
-		Help:        "Query response times",
-		ConstLabels: prometheus.Labels{"query": name},
+		Namespace: "db",
+		Name:      "query_time_seconds",
+		Help:      "Query response times",
+		ConstLabels: prometheus.Labels{
+			"query":    name,
+			"service":  "main_api",
+			"hostname": hostname,
+		},
 	})
 	prometheus.MustRegister(*query)
 }
@@ -79,7 +89,7 @@ func dbSlowHandler() http.Handler {
 
 func writeToDb() string {
 	start := time.Now()
-	time.Sleep(10 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
 	defer FastQuery.Observe(float64(time.Since(start).Seconds()))
 
 	return "some db request!"

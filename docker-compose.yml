@@ -1,9 +1,17 @@
 version: '3'
 services:
-  web:
+  web_a:
     build: .
     ports:
       - "1323:1323"
+    environment:
+      - PORT=:1323
+  web_b:
+    build: .
+    ports:
+      - "1324:1324"
+    environment:
+      - PORT=:1324
   consul:
     image: consul
     ports:
